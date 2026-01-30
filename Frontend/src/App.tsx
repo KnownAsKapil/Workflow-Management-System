@@ -3,15 +3,15 @@ import { useEffect } from 'react'
 import './App.css'
 
 function App() {
-  const server = 'http://localhost:8000'
+  const server = 'http://localhost:8000/api/v1'
   useEffect(() => {
     async function checkHealth(){
-      const res = await fetch(`${server}/health`, {
+      const res = await fetch(`${server}/tasks`, {
         method:"GET"
       })
 
-      const data = await res.json()
-      console.log(data.message)
+      const response = await res.json()
+      console.log(response.data)
     }
     checkHealth();
   }, [])

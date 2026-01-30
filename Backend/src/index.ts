@@ -2,6 +2,8 @@ import express from "express"
 import cors from "cors"
 import dotenv from "dotenv"
 import pool from "./DB/DB_Connection.js"
+import authRouter from "./Routers/auth.routers.js"
+import taskRouter from "./Routers/task.routes.js"
 
 dotenv.config()
 
@@ -16,11 +18,8 @@ app.use(express.json())
 
 const port = process.env.PORT || 8000
 
-//console.log("ENV PORT:", process.env.PORT)
-app.use('/health', async (_, res) => {
-    const response = await pool.query("Select 1")
-    res.send({message :'Everything healthy'})
-})
+app.use('/api/v1/auth', authRouter)
+app.use('/api/v1/tasks', taskRouter)
 
 app.listen(port, () => {
     console.log(`Server listening at port ${port}`)
