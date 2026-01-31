@@ -6,12 +6,15 @@ import jwt, { type JwtPayload } from "jsonwebtoken"
 import { ACCESS_TOKEN_SECRET, REFRESH_TOKEN_SECRET } from "../config/env.js"
 import pool from "../DB/DB_Connection.js"
 import type { AccessTokenPayload, RefreshTokenPayload } from "../Interfaces/interfaces.js"
-import type { Secret, SignOptions } from "jsonwebtoken"
+import type { Secret } from "jsonwebtoken"
+import { hashPassword, checkPassword } from "../Utils/PasswordHandler.js"
 
 const accessTokenExpiry = process.env.ACCESS_TOKEN_EXPIRY ?? "15m"
-const refreshTokenExpiry = process.env.ACCESS_TOKEN_EXPIRY ?? "15m"
+const refreshTokenExpiry = process.env.REFRESH_TOKEN_EXPIRY ?? "7d"
 
-function generateAccessAndRefreshToken(userId: number, role: "Developer" | "Manager"){
+function generateAccessAndRefreshToken(userId: number, role: "Developer" | "Manager") 
+:{newAccessToken: string, newRefreshToken: string}
+{
 
       const accessPayload: AccessTokenPayload = {
         userId: userId,
@@ -42,20 +45,112 @@ function generateAccessAndRefreshToken(userId: number, role: "Developer" | "Mana
 
 }
 
+
 const handleRegister = asyncHandler(async (req: Request, res: Response) => {
+    const {name, password, email, phone, role} = req.body
+
+    if (![name, password, email, phone, role].every(Boolean)) {
+      throw new ApiError(400, "All fields are required")
+    }
+
+    const findUser = await pool.query("Select 1 from users where email = $1 OR phone = $2",
+    [email, phone]
+    )
+
+    if(findUser.rowCount !== 0){
+      throw new ApiError(409, "User already exists")
+    }
     
+    const hashedPassword = await hashPassword(password)
+    await pool.query("Insert into users(name, password, email, phone, role) values ($1, $2, $3, $4, $5)",
+      [name, hashedPassword, email, phone, role]
+    )
+
+    res.status(201)
+    .json(new ApiResponse(201, "User created"))
+
 })
 
 const handleLogin = asyncHandler(async (req: Request, res: Response) => {
-  // intentionally empty
+  const {email, password} = req.body
+
+  if(!email || !password){
+    throw new ApiError(400, "Both email and password are necessary")
+  }
+
+  const findUser = await pool.query("Select id, password, role from users where email = $1", [email])
+
+  if(findUser.rowCount === 0){
+    throw new ApiError(401, "Invalid Credentials")
+  }
+
+  const user = findUser.rows[0]
+
+  const isMatch = await checkPassword(password, user.password)
+
+  if(!isMatch){
+    throw new ApiError(401, "Invalid Credentials")
+  }
+
+  const {newAccessToken, newRefreshToken} = generateAccessAndRefreshToken(user.id, user.role)
+
+  res.cookie("accessToken", newAccessToken, {
+    httpOnly: true
+  })
+  
+  res.cookie("refreshToken", newRefreshToken, {
+    httpOnly: true
+  })
+
+   await pool.query(
+    "UPDATE users SET refresh_token = $1 WHERE id = $2",
+    [newRefreshToken, user.id]
+  )
+
+  res.status(200)
+  .json(new ApiResponse(200, "Successful Login"))
+
 })
 
 const handleLogout = asyncHandler(async (req: Request, res: Response) => {
-  // intentionally empty
+  const userId =  req.userId
+
+  if(!userId){
+    throw new ApiError(401, "Unauthorized Request")
+  }
+
+  await pool.query("Update users set refresh_token = NULL where id = $1", [ userId])
+
+  res.clearCookie("accessToken",{
+    httpOnly: true
+  })
+  res.clearCookie("refreshToken",{
+    httpOnly: true
+  })
+  
+  res.status(200)
+  .json(new ApiResponse(200, "Logged Out Successfully"))
 })
 
 const getDetails = asyncHandler(async (req: Request, res: Response) => {
-  // intentionally empty
+    const userId = req.userId
+
+    if(!userId){
+      throw new ApiError(401, "Unauthorized Request")
+    }
+
+    const user = await pool.query("Select name, email, phone, role from users where id = $1",
+      [userId]
+    )
+
+    if(user.rowCount === 0){
+      throw new ApiError(404, 'User not found')
+    }
+
+    const userData = user.rows[0]
+
+    res.status(200)
+    .json(new ApiResponse(200, userData))
 })
 
 const refreshAllTokens = asyncHandler(async (req: Request, res: Response) => {
@@ -70,7 +165,7 @@ const refreshAllTokens = asyncHandler(async (req: Request, res: Response) => {
   try {
     decodedToken = jwt.verify(
       refreshToken,
-      REFRESH_TOKEN_SECRET as string
+      REFRESH_TOKEN_SECRET as Secret
     ) as JwtPayload & { userId: number }
   } catch {
     throw new ApiError(401, "Refresh token expired or invalid")
