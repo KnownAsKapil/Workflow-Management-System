@@ -16,10 +16,10 @@ export const verifyJWT = asyncHandler(async(req, res, next) => {
             const decodedToken = jwt.verify(token, ACCESS_TOKEN_SECRET as string) as JwtPayload
 
             const { userId, role } = decodedToken as JwtPayload & {
-                userId: string
+                userId: number
                 role: string
             }
-            req.user = userId
+            req.userId = userId
             req.role = role
 
             next()
