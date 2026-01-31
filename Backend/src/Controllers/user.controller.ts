@@ -19,9 +19,14 @@ const getDetails = asyncHandler(async (req: Request, res: Response) => {
   // intentionally empty
 })
 
+const refreshAllTokens = asyncHandler(async (req: Request, res: Response) => {
+  // intentionally empty
+})
+
 export {
   handleRegister,
   handleLogin,
   handleLogout,
-  getDetails
+  getDetails,
+  refreshAllTokens
 }

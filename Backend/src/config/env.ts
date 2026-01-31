@@ -1,0 +1,15 @@
+const ACCESS_TOKEN_SECRET = process.env.ACCESS_TOKEN_SECRET
+const REFRESH_TOKEN_SECRET = process.env.REFRESH_TOKEN_SECRET
+
+if (!ACCESS_TOKEN_SECRET) {
+  throw new Error("ACCESS_TOKEN_SECRET is missing")
+}
+
+if (!REFRESH_TOKEN_SECRET) {
+  throw new Error("REFRESH_TOKEN_SECRET is missing")
+}
+
+export {
+  ACCESS_TOKEN_SECRET,
+  REFRESH_TOKEN_SECRET
+}
