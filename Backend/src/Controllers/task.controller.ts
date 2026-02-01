@@ -4,9 +4,7 @@ import { ApiError } from "../Utils/ApiError.js"
 import type { Request, Response } from "express"
 
 const getAllTasks = asyncHandler(async (req: Request, res: Response) => {
-  res
-    .status(200)
-    .json(new ApiResponse(200, "All good"))
+    
 })
 
 const createTask = asyncHandler(async (req: Request, res: Response) => {

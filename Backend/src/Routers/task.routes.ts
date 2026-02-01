@@ -20,7 +20,7 @@ router.route('/history/:taskId')
   .get(getHistory)
 
 router.route('/:taskId/start')
-  .patch(allowRoles("Manager"),startTask)
+  .patch(allowRoles("Developer"),startTask)
 
 router.route('/:taskId/submit')
   .patch(allowRoles("Developer"), submitTask)
