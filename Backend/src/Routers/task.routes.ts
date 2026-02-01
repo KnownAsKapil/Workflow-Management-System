@@ -4,13 +4,14 @@ import {getAllTasks,  createTask, deleteTask, getTask, editTask,
 }
 from '../Controllers/task.controller.js'
 import { verifyJWT } from "../Middlewares/auth.middleware.js"
+import { allowRoles } from "../Middlewares/roles.middleware.js"
 
 const router = Router()
 router.use(verifyJWT)
 
 router.route('/')
   .get(getAllTasks)
-  .post(createTask)
+  .post(allowRoles("Manager"), createTask)
 
 router.route('/history')
   .get(getAllHistory)
@@ -19,17 +20,17 @@ router.route('/history/:taskId')
   .get(getHistory)
 
 router.route('/:taskId/start')
-  .patch(startTask)
+  .patch(allowRoles("Manager"),startTask)
 
 router.route('/:taskId/submit')
-  .patch(submitTask)
+  .patch(allowRoles("Developer"), submitTask)
 
 router.route('/:taskId/review')
-  .patch(reviewTask)
+  .patch(allowRoles("Manager"),reviewTask)
 
 router.route('/:taskId')
   .get(getTask)
-  .delete(deleteTask)
+  .delete(allowRoles("Manager"), deleteTask)
   .patch(editTask)
 
 
