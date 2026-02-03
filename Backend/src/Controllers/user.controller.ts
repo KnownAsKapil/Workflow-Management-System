@@ -8,6 +8,7 @@ import pool from "../DB/DB_Connection.js"
 import type { AccessTokenPayload, RefreshTokenPayload } from "../Interfaces/interfaces.js"
 import type { Secret } from "jsonwebtoken"
 import { hashPassword, checkPassword } from "../Utils/PasswordHandler.js"
+import { appendFile } from "node:fs"
 
 const accessTokenExpiry = process.env.ACCESS_TOKEN_EXPIRY ?? "15m"
 const refreshTokenExpiry = process.env.REFRESH_TOKEN_EXPIRY ?? "7d"
@@ -204,11 +205,57 @@ const refreshAllTokens = asyncHandler(async (req: Request, res: Response) => {
     .json(new ApiResponse(200, "Tokens refreshed"))
 })
 
+const makeTeam = asyncHandler(async (req: Request, res: Response) => {
+    const userId = req.userId
+    const role = req.role
+
+    const developerId = Number(req.params.developerId)
+
+
+    if(!userId || !role){
+      throw new ApiError(401, "Unauthorized Request")
+    }
+
+    if(role === "Developer"){
+      throw new ApiError(403, "Forbidden Request")
+    }
+
+    if(!developerId){
+      throw new ApiError(400, "Bad Request")
+    }
+
+    const employeeDetail = await pool.query(`Select * from users 
+              where id = $1 and role = 'Developer'`, [developerId])
+
+    if(employeeDetail.rowCount === 0){
+      throw new ApiError(404, "User not found")
+    }
+
+    const employeeTeam = await pool.query(`Select * from team where developer_id = $1`,
+      [developerId]
+    )
+
+    if(employeeTeam.rowCount === 0){
+      await pool.query(`Insert into team(manager_id, developer_id) values ($1, $2)`,
+        [userId, developerId]
+      )
+    }
+    else{
+      await pool.query(`Update team set manager_id = $1 where developer_id = $2`,
+        [userId, developerId]
+      )
+    }
+
+    res.status(200)
+    .json(new ApiResponse(200, "Team Updated"))
+})
+
 
 export {
   handleRegister,
   handleLogin,
   handleLogout,
   getDetails,
-  refreshAllTokens
+  refreshAllTokens,
+  makeTeam
 }

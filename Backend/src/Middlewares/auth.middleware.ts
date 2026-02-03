@@ -10,10 +10,11 @@ export const verifyJWT = asyncHandler(async(req, res, next) => {
         const token = req.cookies?.accessToken || req.header("Authorization")?.replace("Bearer ", "")
     
         if(!token){
-            throw new ApiError(401, "Unauthorized Request")
+            throw new ApiError(401, "Unauthorized Request (Cookie Not Found)")
         }
         try{
             const decodedToken = jwt.verify(token, ACCESS_TOKEN_SECRET as string) as JwtPayload
+            console.log(decodedToken)
 
             const { userId, role } = decodedToken as JwtPayload & {
                 userId: number
@@ -30,7 +31,7 @@ export const verifyJWT = asyncHandler(async(req, res, next) => {
             throw new ApiError(401, "Token Expired")
         }
         else{
-            throw new ApiError(401, "Unauthorized Request")
+            throw new ApiError(401, "Unauthorized Request For Some Reason")
         }
     }
     

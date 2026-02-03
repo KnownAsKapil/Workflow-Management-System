@@ -20,8 +20,7 @@ const getAllTasks = asyncHandler(async (req: Request, res: Response) => {
     if(role === "Manager"){
       const tasks = await pool.query(
         `
-        SELECT t.* from tasks t JOIN team tm ON 
-        t.assigned_to = tm.employee_id where tm.manager_id = $1 AND t.is_deleted = false`,
+        SELECT * from tasks where created_by = $1 AND is_deleted = false`,
         [userId]
       )
 
@@ -56,6 +55,13 @@ const createTask = asyncHandler(async (req: Request, res: Response) => {
 
     requireAuth(userId, role)
 
+    const checkTeam = await pool.query(`Select * from team where manager_id = $1
+      and developer_id = $2`, [userId, assigned_to])
+
+    if(checkTeam.rowCount === 0){
+      throw new ApiError(401, "Cannot assign task to employee that are not in team")
+    }
+
     const createdTask = await 
     pool.query(`Insert into tasks (name, instruction, assigned_to, created_by, state)
       values ($1, $2, $3, $4, $5) RETURNING  id, state`, 
@@ -69,8 +75,8 @@ const createTask = asyncHandler(async (req: Request, res: Response) => {
     
     await pool.query(`
       Insert into history(task_id, from_state, to_state, actor_id, actor_role, 
-      comment) values($1, $2, $3, $4, $5, $6)`,
-    [task.id, null, task.state, userId, role, comment])
+      comment, action) values($1, $2, $3, $4, $5, $6, $7)`,
+    [task.id, null, task.state, userId, role, comment, "CREATED"])
 
     res.status(201)
     .json(new ApiResponse(201, "Task Created"))
@@ -121,8 +127,8 @@ const startTask = asyncHandler(async (req: Request, res: Response) => {
 
     await pool.query(`
       Insert into history(task_id, from_state, to_state, actor_id, actor_role, 
-      comment) values($1, $2, $3, $4, $5, $6)`,
-    [newTask.id, task.state, newTask.state, userId, role, comment])
+      comment) values($1, $2, $3, $4, $5, $6, $7)`,
+    [newTask.id, task.state, newTask.state, userId, role, comment, "SHIFTED"])
 
     res.status(200)
     .json(new ApiResponse(200, newTask, "Task Updated to ongoing"))
@@ -155,8 +161,8 @@ const deleteTask = asyncHandler(async (req: Request, res: Response) => {
 
     await pool.query(`
       Insert into history(task_id, from_state, to_state, actor_id, actor_role, 
-      comment) values($1, $2, $3, $4, $5, $6)`,
-    [task.id, task.state, task.state, userId, role, comment])
+      comment, action) values($1, $2, $3, $4, $5, $6, $7)`,
+    [task.id, task.state, task.state, userId, role, comment, "DELETED"])
 
     res.status(200)
     .json(new ApiResponse(200, task, "Deleted Task"))
@@ -258,9 +264,9 @@ const editTask = asyncHandler(async (req: Request, res: Response) => {
   const comment: string | null = req.body?.comment ?? null
 
   await pool.query(`Insert into history
-    (task_id, from_state, to_state, actor_id, actor_role, comment)
-    values($1, $2, $3, $4, $5, $6)`,
-  [taskId, task.state, task.state, userId, role, comment])
+    (task_id, from_state, to_state, actor_id, actor_role, comment, action)
+    values($1, $2, $3, $4, $5, $6, $7)`,
+  [taskId, task.state, task.state, userId, role, comment, "EDITED"])
 
   res.status(200)
   .json(new ApiResponse(200, updatedTask, "Task Updated"))
@@ -292,9 +298,9 @@ const submitTask = asyncHandler(async (req: Request, res: Response) => {
   const task = taskDetails.rows[0]
 
   await pool.query(`Insert into history
-    (task_id, from_state, to_state, actor_id, actor_role, comment)
-    values($1, $2, $3, $4, $5, $6)`,
-  [taskId, "ONGOING", task.state, userId, role, comment])
+    (task_id, from_state, to_state, actor_id, actor_role, comment, action)
+    values($1, $2, $3, $4, $5, $6, $7)`,
+  [taskId, "ONGOING", task.state, userId, role, comment, "SHIFTED"])
 
   res.status(200)
   .json(new ApiResponse(200, task, "Task Sent to Review"))
@@ -330,9 +336,9 @@ const reviewTask = asyncHandler(async (req: Request, res: Response) => {
   const task = taskDetails.rows[0]
 
   await pool.query(`Insert into history
-    (task_id, from_state, to_state, actor_id, actor_role, comment)
-    values($1, $2, $3, $4, $5, $6)`,
-  [taskId, "REVIEW", state, userId, role, comment])
+    (task_id, from_state, to_state, actor_id, actor_role, comment, action)
+    values($1, $2, $3, $4, $5, $6, $7)`,
+  [taskId, "REVIEW", state, userId, role, comment, "SHIFTED"])
 
   res.status(200)
   .json(new ApiResponse(200, task, "Task Reviewed"))
@@ -347,12 +353,7 @@ const reviewTask = asyncHandler(async (req: Request, res: Response) => {
 
   const historyDetails = await pool.query(
     `
-    SELECT h.*
-    FROM history h
-    JOIN tasks t ON h.task_id = t.id
-    WHERE t.is_deleted = false
-      AND (t.assigned_to = $1 OR t.created_by = $1)
-    ORDER BY h.created_at DESC
+    SELECT * from history where actor_id = $1 Order by  created_at desc
     `,
     [userId]
   )

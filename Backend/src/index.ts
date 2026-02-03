@@ -1,9 +1,9 @@
 import express from "express"
 import cors from "cors"
 import dotenv from "dotenv"
-import pool from "./DB/DB_Connection.js"
 import authRouter from "./Routers/auth.routers.js"
 import taskRouter from "./Routers/task.routes.js"
+import cookieParser from "cookie-parser"
 
 dotenv.config()
 
@@ -15,6 +15,7 @@ app.use(cors(
     }
 ))
 app.use(express.json())
+app.use(cookieParser())
 
 const port = process.env.PORT || 8000
 
