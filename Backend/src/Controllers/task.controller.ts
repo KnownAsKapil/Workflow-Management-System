@@ -6,37 +6,65 @@ import pool from "../DB/DB_Connection.js"
 import type{ TaskState } from "../Interfaces/interfaces.js"
 
 function requireAuth(userId?: number, role?: string) {
-  if (!userId || !role) {
-    throw new ApiError(401, "Unauthorized Access")
+  if (!Number.isInteger(userId) || !role) {
+    throw new ApiError(401, "Unauthorized Access");
   }
 }
 
+
 const getAllTasks = asyncHandler(async (req: Request, res: Response) => {
-    const role = req.role
-    const userId = req.userId
+  const role = req.role;
+  const userId = req.userId;
+  const state = req.query.state as TaskState | undefined;
 
-    requireAuth(userId, role)
+  requireAuth(userId, role);
 
-    if(role === "Manager"){
-      const tasks = await pool.query(
-        `
-        SELECT * from tasks where created_by = $1 AND is_deleted = false`,
-        [userId]
+  const validStates: TaskState[] = [
+    "ASSIGNED",
+    "ONGOING",
+    "REVIEW",
+    "ACCEPTED",
+  ];
+
+  if (state && !validStates.includes(state)) {
+    throw new ApiError(400, "Invalid task state filter");
+  }
+
+  let query = "";
+  const params: any[] = [userId];
+
+  if (role === "Manager") {
+    query = `
+      SELECT *
+      FROM tasks
+      WHERE assigned_to IN (
+        SELECT developer_id
+        FROM team
+        WHERE manager_id = $1
       )
+      AND is_deleted = false
+    `;
+  } else {
+    query = `
+      SELECT *
+      FROM tasks
+      WHERE assigned_to = $1
+      AND is_deleted = false
+    `;
+  }
 
-      return res.status(200)
-      .json(new ApiResponse(200, tasks.rows, "Data fetched"))
+  if (state) {
+    query += ` AND state = $${params.length + 1}`;
+    params.push(state);
+  }
 
-    }
-    else{
-      const tasks = await pool.query(`
-        Select * from tasks where assigned_to = $1 And is_deleted= false
-        `, [userId])
+  const tasks = await pool.query(query, params);
 
-      return res.status(200)
-      .json(new ApiResponse(200, tasks.rows, "Data fetched"))
-    }
-})
+  res.status(200).json(
+    new ApiResponse(200, tasks.rows, "Data fetched")
+  );
+});
+
 
 const createTask = asyncHandler(async (req: Request, res: Response) => {
     const {name, instruction, assigned_to} = req.body
@@ -88,8 +116,12 @@ const startTask = asyncHandler(async (req: Request, res: Response) => {
     const role = req.role
     const comment: string | null = req.body?.comment ?? null
 
-    if(!taskId){
-      throw new ApiError(400, "Invalid Task Id")
+    if (!Number.isInteger(taskId) || taskId <= 0) {
+      throw new ApiError(400, "Invalid Task Id");
+    }
+
+    if(role !== "Developer"){
+      throw new ApiError(401, "Only Developer can start task")
     }
 
     requireAuth(userId, role)
@@ -127,7 +159,7 @@ const startTask = asyncHandler(async (req: Request, res: Response) => {
 
     await pool.query(`
       Insert into history(task_id, from_state, to_state, actor_id, actor_role, 
-      comment) values($1, $2, $3, $4, $5, $6, $7)`,
+      comment, action) values($1, $2, $3, $4, $5, $6, $7)`,
     [newTask.id, task.state, newTask.state, userId, role, comment, "SHIFTED"])
 
     res.status(200)
@@ -142,13 +174,19 @@ const deleteTask = asyncHandler(async (req: Request, res: Response) => {
 
     requireAuth(userId, role)
 
-    if(!taskId){
-      throw new ApiError(400, "Invalid Task id")
+    if (!Number.isInteger(taskId) || taskId <= 0) {
+      throw new ApiError(400, "Invalid Task Id");
+    }
+
+
+    if(role === "Developer"){
+      throw new ApiError(403, "Forbidden Deletion")
     }
 
     const taskDetails = 
       await pool.query(`Update tasks set is_deleted = $1 
-      where id = $2 AND created_by = $3  AND is_deleted = false
+      where id = $2 AND assigned_to IN (Select developer_id from team
+      where manager_id = $3) AND is_deleted = false
       RETURNING id, created_by, assigned_to, 
       state, is_deleted, updated_at`
     ,[true, taskId, userId])
@@ -175,12 +213,15 @@ const getTask = asyncHandler(async (req: Request, res: Response) => {
 
     requireAuth(userId, role)
 
-    if(!taskId){
-      throw new ApiError(400, "Invalid Task id")
+    if (!Number.isInteger(taskId) || taskId <= 0) {
+      throw new ApiError(400, "Invalid Task Id");
     }
 
+
     const taskList = await pool.query(`Select * from tasks where id = $1 
-      AND (assigned_to = $2 OR created_by = $2) AND is_deleted = false`, [taskId, userId])
+      AND (assigned_to = $2 OR assigned_to IN 
+      (Select developer_id from team where manager_id = $2)) 
+      AND is_deleted = false`, [taskId, userId])
 
     if(taskList.rowCount === 0) throw new ApiError(404, "Task Not Found")
 
@@ -196,14 +237,14 @@ const editTask = asyncHandler(async (req: Request, res: Response) => {
   const role = req.role
   const taskId = Number(req.params.taskId)
 
-  if(!taskId){
-    throw new ApiError(400, "Invalid Task Id")
+  if (!Number.isInteger(taskId) || taskId <= 0) {
+    throw new ApiError(400, "Invalid Task Id");
   }
 
   requireAuth(userId, role)
 
   const taskList = await pool.query(`Select * from tasks where id = $1 
-    AND (assigned_to = $2 OR created_by = $2)
+    AND (assigned_to = $2 OR assigned_to IN (Select developer_id from team where manager_id = $2))
     AND is_deleted = false`,
     [taskId, userId]
   )
@@ -251,7 +292,9 @@ const editTask = asyncHandler(async (req: Request, res: Response) => {
   const updatedContent = await pool.query(`
       Update tasks set ${setValues}
       where id = $${keys.length + 1} AND is_deleted = false AND 
-      (assigned_to = $${keys.length + 2} OR created_by = $${keys.length + 2}) 
+      (assigned_to = $${keys.length + 2} OR assigned_to IN (Select developer_id 
+      from team where manager_id 
+       = $${keys.length + 2}))
       RETURNING id, content, instruction, state
     `, [...values, taskId, userId])
 
@@ -272,15 +315,16 @@ const editTask = asyncHandler(async (req: Request, res: Response) => {
   .json(new ApiResponse(200, updatedTask, "Task Updated"))
 })
 
-
-
 const submitTask = asyncHandler(async (req: Request, res: Response) => {
   const userId = req.userId
   const role = req.role
   const comment: string | null = req.body?.comment ?? null
   const taskId = Number(req.params?.taskId)
 
-  if(!taskId) throw new ApiError(400, "Invalid Task Id")
+  if (!Number.isInteger(taskId) || taskId <= 0) {
+      throw new ApiError(400, "Invalid Task Id");
+    }
+
   requireAuth(userId, role)
 
     if (role !== "Developer") {
@@ -318,7 +362,10 @@ const reviewTask = asyncHandler(async (req: Request, res: Response) => {
     throw new ApiError(400, "Invalid State")
   }
 
-  if(!taskId) throw new ApiError(400, "Invalid Task Id")
+  if (!Number.isInteger(taskId) || taskId <= 0) {
+  throw new ApiError(400, "Invalid Task Id");
+}
+
   requireAuth(userId, role)
 
     if (role !== "Manager") {
@@ -328,7 +375,8 @@ const reviewTask = asyncHandler(async (req: Request, res: Response) => {
 
   const taskDetails = await pool.query(`
     Update tasks set state = $1 where  id = $2
-    AND state = 'REVIEW' AND created_by = $3 AND is_deleted = false RETURNING id, state
+    AND state = 'REVIEW' AND assigned_to IN (Select developer_id from team where manager_id = $3) 
+    AND is_deleted = false RETURNING id, state
     `, [state, taskId, userId])
 
   if(taskDetails.rowCount === 0) throw new ApiError(409, "Task Conflict")
@@ -345,7 +393,7 @@ const reviewTask = asyncHandler(async (req: Request, res: Response) => {
 
 })
 
-    const getAllHistory = asyncHandler(async (req: Request, res: Response) => {
+const getAllHistory = asyncHandler(async (req: Request, res: Response) => {
   const userId = req.userId
   const role = req.role
 
@@ -363,8 +411,6 @@ const reviewTask = asyncHandler(async (req: Request, res: Response) => {
   )
 })
 
-
-
 const getHistory = asyncHandler(async (req: Request, res: Response) => {
   const taskId = Number(req.params.taskId)
   const userId = req.userId
@@ -372,9 +418,9 @@ const getHistory = asyncHandler(async (req: Request, res: Response) => {
 
   requireAuth(userId, role)
 
-  if (!taskId) {
-    throw new ApiError(400, "Invalid Task ID")
-  }
+  if (!Number.isInteger(taskId) || taskId <= 0) {
+  throw new ApiError(400, "Invalid Task Id");
+}
 
   const historyDetails = await pool.query(
     `
@@ -382,8 +428,9 @@ const getHistory = asyncHandler(async (req: Request, res: Response) => {
     FROM history h
     JOIN tasks t ON h.task_id = t.id
     WHERE h.task_id = $1
-      AND t.is_deleted = false
-      AND (t.assigned_to = $2 OR t.created_by = $2)
+    AND t.is_deleted = false
+    AND (t.assigned_to = $2 OR t.assigned_to IN (Select developer_id from team
+    where manager_id  = $2))
     ORDER BY h.created_at DESC
     `,
     [taskId, userId]
