@@ -2,7 +2,8 @@
 import { useEffect } from 'react'
 import './App.css'
 import { getMe } from './features/auth/auth.api'
-import Login from './Pages/login'
+import Login from './Pages/Login.tsx'
+import TasksPage from './Pages/TasksPage.tsx'
 
 function App() {
 
@@ -13,10 +14,8 @@ function App() {
   }, [])
   return (
     <>
-      <h1 className="text-3xl font-bold underline">
-    Hello world!
-  </h1>
   <Login />
+  <TasksPage />
     </>
   )
 }
