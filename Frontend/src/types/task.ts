@@ -1,0 +1,1 @@
+export type TaskState = "ASSIGNED" | "ONGOING" | "REVIEW" | "ACCEPTED"
