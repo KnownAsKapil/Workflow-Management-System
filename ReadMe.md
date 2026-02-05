@@ -202,6 +202,30 @@ Backend/
 
 ---
 
+## Environment Setup
+
+Create environment files from the examples before running the apps:
+
+- `Backend/.env` from `Backend/.env.example`
+- `Frontend/.env` from `Frontend/.env.example`
+
+### Backend variables
+
+- `ACCESS_TOKEN_SECRET`
+- `REFRESH_TOKEN_SECRET`
+- `ACCESS_TOKEN_EXPIRY` (optional, defaults to `15m`)
+- `REFRESH_TOKEN_EXPIRY` (optional, defaults to `7d`)
+- `DB_HOST` (optional, defaults to `localhost`)
+- `DB_PORT` (optional, defaults to `5432`)
+- `DB_USER` (optional, defaults to `postgres`)
+- `DB_PASSWORD`
+- `DB_NAME` (optional, defaults to `flow_management`)
+
+### Frontend variables
+
+- `VITE_API_BASE_URL` (optional, defaults to `http://localhost:8000/api/v1`)
+
+
 ### Frontend
 ```
 
@@ -249,4 +273,3 @@ This project demonstrates:
 
 The Flow Management System focuses on building a clear and reliable backend that enforces business rules consistently.  
 The design prioritizes correctness, clarity, and extensibility, making it suitable as a foundation for more advanced features in the future.
-
