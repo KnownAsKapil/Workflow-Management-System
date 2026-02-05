@@ -3,7 +3,7 @@ import type { JwtPayload } from "jsonwebtoken"
 declare global {
   namespace Express {
     interface Request {
-      userId?: number        // or number, depending on your userId
+      userId?: number       
       role?: string
       tokenPayload?: JwtPayload
     }

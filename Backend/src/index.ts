@@ -11,7 +11,7 @@ dotenv.config()
 const app = express()
 app.use(cors(
     {
-        origin:["http://localhost:5173", "http://localhost:5174"],
+        origin:[process.env.FRONTEND_PORT!],
         credentials:true
     }
 ))
@@ -25,7 +25,7 @@ app.use('/api/v1/tasks', taskRouter)
 app.use('/api/v1/team', teamRouter)
 
 app.listen(port, () => {
-    console.log(`Server listening at port ${port}`)
+    console.log(`Server listening at the port ${port}`)
 })
 
 
