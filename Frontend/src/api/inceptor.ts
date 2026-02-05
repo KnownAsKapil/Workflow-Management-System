@@ -1,38 +1,61 @@
+// inceptor.ts (or wherever interceptor lives)
 import { api } from "./axios"
 
 let isRefreshing = false
-let pending: (() => void)[] = []
+let failedQueue: any[] = []
+
+const processQueue = (error: any) => {
+  failedQueue.forEach(promise => promise.reject(error))
+  failedQueue = []
+}
 
 api.interceptors.response.use(
-  res => res,
-  async err => {
-    const original = err.config
+  response => response,
+  async error => {
+    const originalRequest = error.config
 
-    if (err.response?.status === 401 && !original._retry) {
-      original._retry = true
+    // 1️⃣ No response → network error
+    if (!error.response) {
+      return Promise.reject(error)
+    }
 
+    const status = error.response.status
+    const url = originalRequest.url as string
+
+    // 2️⃣ DO NOT refresh for auth endpoints
+    if (
+      status === 401 &&
+      (
+        url.includes("/auth/login") ||
+        url.includes("/auth/me") ||
+        url.includes("/auth/refresh")
+      )
+    ) {
+      return Promise.reject(error)
+    }
+
+    // 3️⃣ Only try refresh once
+    if (status === 401 && !originalRequest._retry) {
       if (isRefreshing) {
-        return new Promise(resolve => {
-          pending.push(() => resolve(api(original)))
+        return new Promise((_, reject) => {
+          failedQueue.push({ reject })
         })
       }
 
+      originalRequest._retry = true
       isRefreshing = true
 
       try {
         await api.post("/auth/refresh")
-        pending.forEach(cb => cb())
-        pending = []
-        return api(original)
-      } catch (refreshErr) {
-        pending = []
-        window.location.href = "/login"
-        return Promise.reject(refreshErr)
-      } finally {
         isRefreshing = false
+        return api.request(originalRequest)
+      } catch (refreshError) {
+        isRefreshing = false
+        processQueue(refreshError)
+        return Promise.reject(refreshError)
       }
     }
 
-    return Promise.reject(err)
+    return Promise.reject(error)
   }
 )
