@@ -7,7 +7,7 @@ import type{ TaskState } from "../Interfaces/interfaces.js"
 
 function requireAuth(userId?: number, role?: string) {
   if (!Number.isInteger(userId) || !role) {
-    throw new ApiError(401, "Unauthorized Access");
+    throw new ApiError(401, "Unauthorized access");
   }
 }
 
@@ -35,21 +35,23 @@ const getAllTasks = asyncHandler(async (req: Request, res: Response) => {
 
   if (role === "Manager") {
     query = `
-      SELECT *
-      FROM tasks
-      WHERE assigned_to IN (
+      SELECT t.*, u.name AS assigned_to_name
+      FROM tasks t
+      JOIN users u ON u.id = t.assigned_to
+      WHERE t.assigned_to IN (
         SELECT developer_id
         FROM team
         WHERE manager_id = $1
       )
-      AND is_deleted = false
+      AND t.is_deleted = false
     `;
   } else {
     query = `
-      SELECT *
-      FROM tasks
-      WHERE assigned_to = $1
-      AND is_deleted = false
+      SELECT t.*, u.name AS assigned_to_name
+      FROM tasks t
+      JOIN users u ON u.id = t.assigned_to
+      WHERE t.assigned_to = $1
+      AND t.is_deleted = false
     `;
   }
 
@@ -82,32 +84,50 @@ const createTask = asyncHandler(async (req: Request, res: Response) => {
     }
 
     requireAuth(userId, role)
+    const client = await pool.connect()
 
-    const checkTeam = await pool.query(`Select * from team where manager_id = $1
-      and developer_id = $2`, [userId, assigned_to])
+    try {
+      
+      await client.query("BEGIN")
+  
+      const checkTeam = await client.query(`Select * from team where manager_id = $1
+        and developer_id = $2 FOR UPDATE`, [userId, assigned_to])
+  
+      if(checkTeam.rowCount === 0){
+        throw new ApiError(403, "Cannot assign a task to a developer outside your team")
+      }
+  
+      const createdTask = await 
+      client.query(`Insert into tasks (name, instruction, assigned_to, created_by, state)
+        values ($1, $2, $3, $4, $5) RETURNING  id, state`, 
+        [name, instruction, assigned_to, userId, state])
+  
+      if(createdTask.rowCount === 0){
+        throw new ApiError(400, "Task Creation failed")
+      }
+  
+      const task = createdTask.rows[0]
+      
+      await client.query(`
+        Insert into history(task_id, from_state, to_state, actor_id, actor_role, 
+        comment, action) values($1, $2, $3, $4, $5, $6, $7)`,
+      [task.id, null, task.state, userId, role, comment, "CREATED"])
 
-    if(checkTeam.rowCount === 0){
-      throw new ApiError(401, "Cannot assign task to employee that are not in team")
+      await client.query("COMMIT")
+  
+      res.status(201)
+      .json(new ApiResponse(201, "Task Created"))
+  
+      
+    } catch (error) {
+      try {
+        await client.query("ROLLBACK")
+      } catch {
+      }
+      throw error
+    } finally {
+      client.release()
     }
-
-    const createdTask = await 
-    pool.query(`Insert into tasks (name, instruction, assigned_to, created_by, state)
-      values ($1, $2, $3, $4, $5) RETURNING  id, state`, 
-      [name, instruction, assigned_to, userId, state])
-
-    if(createdTask.rowCount === 0){
-      throw new ApiError(400, "Task Creation failed")
-    }
-
-    const task = createdTask.rows[0]
-    
-    await pool.query(`
-      Insert into history(task_id, from_state, to_state, actor_id, actor_role, 
-      comment, action) values($1, $2, $3, $4, $5, $6, $7)`,
-    [task.id, null, task.state, userId, role, comment, "CREATED"])
-
-    res.status(201)
-    .json(new ApiResponse(201, "Task Created"))
 })
 
 const startTask = asyncHandler(async (req: Request, res: Response) => {
@@ -121,49 +141,64 @@ const startTask = asyncHandler(async (req: Request, res: Response) => {
     }
 
     if(role !== "Developer"){
-      throw new ApiError(401, "Only Developer can start task")
+      throw new ApiError(403, "Only developers can start tasks")
     }
 
     requireAuth(userId, role)
 
-    const taskDetails = await pool.query("Select state from tasks where id = $1 and assigned_to = $2 AND is_deleted = false", 
+    const client = await pool.connect()
+    try {
+      await client.query("BEGIN")
+
+      const taskDetails = await client.query(`Select state from tasks 
+      where id = $1 and assigned_to = $2 AND is_deleted = false FOR UPDATE`, 
       [taskId, userId])
 
-    if(taskDetails.rowCount === 0){
-      throw new ApiError(404, 'Task Not Found')
-    }
-
-    const task = taskDetails.rows[0]
-    if(task.state !== "ASSIGNED"){
-      throw new ApiError(409, "Task is not in Assigned State")
-    }
-    
-    const newState: TaskState = "ONGOING"
-    
-    const newTaskDetails = 
-    await pool.query(`UPDATE tasks
-                SET state = $1
-                WHERE id = $2
-                  AND assigned_to = $3
-                  AND is_deleted = false
-                RETURNING id, state
-                `, 
-      [newState, taskId, userId])
-
-      if (newTaskDetails.rowCount === 0) {
-        throw new ApiError(409, "Task state changed, retry")
+      if(taskDetails.rowCount === 0){
+        throw new ApiError(404, "Task not found")
       }
 
+      const task = taskDetails.rows[0]
+      if(task.state !== "ASSIGNED"){
+        throw new ApiError(409, "Task is not in ASSIGNED state")
+      }
+      
+      const newState: TaskState = "ONGOING"
+      
+      const newTaskDetails = 
+      await client.query(`UPDATE tasks
+                  SET state = $1
+                  WHERE id = $2
+                    AND assigned_to = $3
+                    AND is_deleted = false
+                  RETURNING id, state
+                  `, 
+        [newState, taskId, userId])
 
-    const newTask = newTaskDetails.rows[0]
+      if (newTaskDetails.rowCount === 0) {
+        throw new ApiError(409, "Task state changed. Please retry")
+      }
 
-    await pool.query(`
+      const newTask = newTaskDetails.rows[0]
+
+      await client.query(`
       Insert into history(task_id, from_state, to_state, actor_id, actor_role, 
       comment, action) values($1, $2, $3, $4, $5, $6, $7)`,
-    [newTask.id, task.state, newTask.state, userId, role, comment, "SHIFTED"])
+      [newTask.id, task.state, newTask.state, userId, role, comment, "SHIFTED"])
 
-    res.status(200)
-    .json(new ApiResponse(200, newTask, "Task Updated to ongoing"))
+      await client.query("COMMIT")
+
+      res.status(200)
+      .json(new ApiResponse(200, newTask, "Task Updated to ongoing"))
+    } catch (error) {
+      try {
+        await client.query("ROLLBACK")
+      } catch {
+      }
+      throw error
+    } finally {
+      client.release()
+    }
 })
 
 const deleteTask = asyncHandler(async (req: Request, res: Response) => {
@@ -183,27 +218,45 @@ const deleteTask = asyncHandler(async (req: Request, res: Response) => {
       throw new ApiError(403, "Forbidden Deletion")
     }
 
-    const taskDetails = 
-      await pool.query(`Update tasks set is_deleted = $1 
-      where id = $2 AND assigned_to IN (Select developer_id from team
-      where manager_id = $3) AND is_deleted = false
-      RETURNING id, created_by, assigned_to, 
-      state, is_deleted, updated_at`
-    ,[true, taskId, userId])
+    const client =await pool.connect()
 
-    if(taskDetails.rowCount === 0){
-      throw new ApiError(404, "Task Not Found")
+
+    try {
+      await client.query("BEGIN")
+      const taskDetails = 
+        await client.query(`Update tasks set is_deleted = $1 
+        where id = $2 AND assigned_to IN (Select developer_id from team
+        where manager_id = $3) AND is_deleted = false
+        RETURNING id, created_by, assigned_to, 
+        state, is_deleted, updated_at`
+      ,[true, taskId, userId])
+  
+      if(taskDetails.rowCount === 0){
+        throw new ApiError(404, "Task not found")
+      }
+  
+      const task = taskDetails.rows[0]
+  
+      await client.query(`
+        Insert into history(task_id, from_state, to_state, actor_id, actor_role, 
+        comment, action) values($1, $2, $3, $4, $5, $6, $7)`,
+      [task.id, task.state, task.state, userId, role, comment, "DELETED"])
+
+      await client.query("COMMIT")
+  
+      res.status(200)
+      .json(new ApiResponse(200, task, "Deleted Task"))
+    } catch (error) {
+        try {
+          await client.query("ROLLBACK")
+        } catch (error) {
+          
+        }
+        throw error
     }
-
-    const task = taskDetails.rows[0]
-
-    await pool.query(`
-      Insert into history(task_id, from_state, to_state, actor_id, actor_role, 
-      comment, action) values($1, $2, $3, $4, $5, $6, $7)`,
-    [task.id, task.state, task.state, userId, role, comment, "DELETED"])
-
-    res.status(200)
-    .json(new ApiResponse(200, task, "Deleted Task"))
+    finally{
+      client.release()
+    }
 })
 
 const getTask = asyncHandler(async (req: Request, res: Response) => {
@@ -218,12 +271,15 @@ const getTask = asyncHandler(async (req: Request, res: Response) => {
     }
 
 
-    const taskList = await pool.query(`Select * from tasks where id = $1 
-      AND (assigned_to = $2 OR assigned_to IN 
+    const taskList = await pool.query(`Select t.*, u.name AS assigned_to_name 
+      from tasks t
+      join users u ON u.id = t.assigned_to
+      where t.id = $1 
+      AND (t.assigned_to = $2 OR t.assigned_to IN 
       (Select developer_id from team where manager_id = $2)) 
-      AND is_deleted = false`, [taskId, userId])
+      AND t.is_deleted = false`, [taskId, userId])
 
-    if(taskList.rowCount === 0) throw new ApiError(404, "Task Not Found")
+    if(taskList.rowCount === 0) throw new ApiError(404, "Task not found")
 
     const task = taskList.rows[0];
 
@@ -243,76 +299,95 @@ const editTask = asyncHandler(async (req: Request, res: Response) => {
 
   requireAuth(userId, role)
 
-  const taskList = await pool.query(`Select * from tasks where id = $1 
-    AND (assigned_to = $2 OR assigned_to IN (Select developer_id from team where manager_id = $2))
-    AND is_deleted = false`,
-    [taskId, userId]
-  )
-
-  if(taskList.rowCount === 0) throw new ApiError(404, "Task Not Found")
-  const task = taskList.rows[0]
-
-  if(["ACCEPTED"].includes(task.state) ){
-    throw new ApiError(403, "Cannot edit task in Accepted state")
-  }
-
-  const editOptions: Record<string, string> = {}
-  const { name, content, instruction } = req.body
-
-  if(role === "Manager" && typeof name === "string" && name.length > 0){
-    editOptions.name = name
-  }
-
-  if(role === "Manager" && typeof instruction === "string" && instruction.length > 0){
-    editOptions.instruction = instruction
-  }
+  const client = await pool.connect()
 
 
 
-  if(role === "Manager" && typeof content === "string" &&content.length > 0){
-    editOptions.content = content
-  }
+ try {
+  await client.query("BEGIN")
+   const taskList = await client.query(`Select * from tasks where id = $1 
+     AND (assigned_to = $2 OR assigned_to IN (Select developer_id from team where manager_id = $2))
+     AND is_deleted = false`,
+     [taskId, userId]
+   )
+ 
+   if(taskList.rowCount === 0) throw new ApiError(404, "Task not found")
+   const task = taskList.rows[0]
+ 
+   if(["ACCEPTED"].includes(task.state) ){
+     throw new ApiError(403, "Cannot edit a task in ACCEPTED state")
+   }
+ 
+   const editOptions: Record<string, string> = {}
+   const { name, content, instruction } = req.body
+ 
+   if(role === "Manager" && typeof name === "string" && name.length > 0){
+     editOptions.name = name
+   }
+ 
+   if(role === "Manager" && typeof instruction === "string" && instruction.length > 0){
+     editOptions.instruction = instruction
+   }
+ 
+ 
+ 
+   if(role === "Manager" && typeof content === "string" &&content.length > 0){
+     editOptions.content = content
+   }
+ 
+   if(role === "Developer"&& typeof content === "string" && content.length > 0 && task.state === "ONGOING"){
+     editOptions.content = content
+   }
+ 
+   if(Object.keys(editOptions).length === 0){
+     throw new ApiError(400, "No valid fields were provided for update")
+ 
+   }
+ 
+   const keys = Object.keys(editOptions)
+   const values = Object.values(editOptions)
+ 
+   const setValues = keys.map((value, idx) => {
+     return `${value} = $${idx + 1}`
+   }).join(", ")
+ 
+   const updatedContent = await client.query(`
+       Update tasks set ${setValues}
+       where id = $${keys.length + 1} AND is_deleted = false AND 
+       (assigned_to = $${keys.length + 2} OR assigned_to IN (Select developer_id 
+       from team where manager_id 
+        = $${keys.length + 2}))
+       RETURNING id, content, instruction, state
+     `, [...values, taskId, userId])
+ 
+   if(updatedContent.rowCount === 0){
+     throw new ApiError(409, "Task update conflict. Please retry")
+   }
+ 
+   const updatedTask = updatedContent.rows[0]
+ 
+   const comment: string | null = req.body?.comment ?? null
+ 
+   await client.query(`Insert into history
+     (task_id, from_state, to_state, actor_id, actor_role, comment, action)
+     values($1, $2, $3, $4, $5, $6, $7)`,
+   [taskId, task.state, task.state, userId, role, comment, "EDITED"])
 
-  if(role === "Developer"&& typeof content === "string" && content.length > 0 && task.state === "ONGOING"){
-    editOptions.content = content
-  }
-
-  if(Object.keys(editOptions).length === 0){
-    throw new ApiError(400, "No valid fields to update")
-
-  }
-
-  const keys = Object.keys(editOptions)
-  const values = Object.values(editOptions)
-
-  const setValues = keys.map((value, idx) => {
-    return `${value} = $${idx + 1}`
-  }).join(", ")
-
-  const updatedContent = await pool.query(`
-      Update tasks set ${setValues}
-      where id = $${keys.length + 1} AND is_deleted = false AND 
-      (assigned_to = $${keys.length + 2} OR assigned_to IN (Select developer_id 
-      from team where manager_id 
-       = $${keys.length + 2}))
-      RETURNING id, content, instruction, state
-    `, [...values, taskId, userId])
-
-  if(updatedContent.rowCount === 0){
-    throw new ApiError(409, "Something went wrong while updating")
-  }
-
-  const updatedTask = updatedContent.rows[0]
-
-  const comment: string | null = req.body?.comment ?? null
-
-  await pool.query(`Insert into history
-    (task_id, from_state, to_state, actor_id, actor_role, comment, action)
-    values($1, $2, $3, $4, $5, $6, $7)`,
-  [taskId, task.state, task.state, userId, role, comment, "EDITED"])
-
-  res.status(200)
-  .json(new ApiResponse(200, updatedTask, "Task Updated"))
+   await client.query("COMMIT")
+ 
+   res.status(200)
+   .json(new ApiResponse(200, updatedTask, "Task Updated"))
+ } catch (error) {
+    try {
+      await client.query("ROLLBACK")
+    } catch (error) {
+      
+    }
+    throw error
+ }
+ finally{
+  client.release()
+ }
 })
 
 const submitTask = asyncHandler(async (req: Request, res: Response) => {
@@ -331,23 +406,39 @@ const submitTask = asyncHandler(async (req: Request, res: Response) => {
     throw new ApiError(403, "Only developers can submit tasks")
   }
 
+  const client = await pool.connect()
+  
+  try {
+    await client.query("BEGIN")
+    const taskDetails = await client.query(`
+      Update tasks set state = 'REVIEW' where  id = $1
+      AND state = 'ONGOING' AND assigned_to = $2 AND is_deleted = false RETURNING id, state
+      `, [taskId, userId])
+  
+    if(taskDetails.rowCount === 0) throw new ApiError(409, "Task transition conflict. Only ONGOING tasks can be submitted")
+  
+    const task = taskDetails.rows[0]
+  
+    await client.query(`Insert into history
+      (task_id, from_state, to_state, actor_id, actor_role, comment, action)
+      values($1, $2, $3, $4, $5, $6, $7)`,
+    [taskId, "ONGOING", task.state, userId, role, comment, "SHIFTED"])
 
-  const taskDetails = await pool.query(`
-    Update tasks set state = 'REVIEW' where  id = $1
-    AND state = 'ONGOING' AND assigned_to = $2 AND is_deleted = false RETURNING id, state
-    `, [taskId, userId])
-
-  if(taskDetails.rowCount === 0) throw new ApiError(409, "Task Conflict")
-
-  const task = taskDetails.rows[0]
-
-  await pool.query(`Insert into history
-    (task_id, from_state, to_state, actor_id, actor_role, comment, action)
-    values($1, $2, $3, $4, $5, $6, $7)`,
-  [taskId, "ONGOING", task.state, userId, role, comment, "SHIFTED"])
-
-  res.status(200)
-  .json(new ApiResponse(200, task, "Task Sent to Review"))
+    await client.query("COMMIT")
+  
+    res.status(200)
+    .json(new ApiResponse(200, task, "Task Sent to Review"))
+  } catch (error) {
+    try {
+      await client.query("ROLLBACK")
+    } catch (error) {
+      
+    }
+    throw error
+  }
+  finally{
+    client.release()
+  }
 
 })
 
@@ -372,24 +463,43 @@ const reviewTask = asyncHandler(async (req: Request, res: Response) => {
     throw new ApiError(403, "Only managers can review tasks")
   }
 
+  const client = await pool.connect()
 
-  const taskDetails = await pool.query(`
-    Update tasks set state = $1 where  id = $2
-    AND state = 'REVIEW' AND assigned_to IN (Select developer_id from team where manager_id = $3) 
-    AND is_deleted = false RETURNING id, state
-    `, [state, taskId, userId])
 
-  if(taskDetails.rowCount === 0) throw new ApiError(409, "Task Conflict")
+  try {
+    await client.query("BEGIN")
+    const taskDetails = await client.query(`
+      Update tasks set state = $1 where  id = $2
+      AND state = 'REVIEW' AND assigned_to IN (Select developer_id from team where manager_id = $3) 
+      AND is_deleted = false RETURNING id, state
+      `, [state, taskId, userId])
+  
+    if(taskDetails.rowCount === 0) throw new ApiError(409, "Task transition conflict. Only REVIEW tasks can be reviewed")
+  
+    const task = taskDetails.rows[0]
+  
+    await client.query(`Insert into history
+      (task_id, from_state, to_state, actor_id, actor_role, comment, action)
+      values($1, $2, $3, $4, $5, $6, $7)`,
+    [taskId, "REVIEW", state, userId, role, comment, "SHIFTED"])
 
-  const task = taskDetails.rows[0]
+    await client.query("COMMIT")
+  
+    res.status(200)
+    .json(new ApiResponse(200, task, "Task Reviewed"))
 
-  await pool.query(`Insert into history
-    (task_id, from_state, to_state, actor_id, actor_role, comment, action)
-    values($1, $2, $3, $4, $5, $6, $7)`,
-  [taskId, "REVIEW", state, userId, role, comment, "SHIFTED"])
-
-  res.status(200)
-  .json(new ApiResponse(200, task, "Task Reviewed"))
+    
+  } catch (error) {
+    try {
+      await client.query("ROLLBACK")
+    } catch (error) {
+      
+    }
+    throw error
+  }
+  finally{
+    client.release()
+  }
 
 })
 
@@ -441,6 +551,90 @@ const getHistory = asyncHandler(async (req: Request, res: Response) => {
   )
 })
 
+const getDeletedTasks = asyncHandler(async(req: Request, res: Response) => {
+    const userId = req.userId
+    const role = req.role
+
+    requireAuth(userId, role)
+    const client = await pool.connect()
+
+    try {
+      const response = await client.query(`Select ts.*, u.name AS assigned_to_name
+        from tasks ts
+        join users u ON u.id = ts.assigned_to
+        where (ts.assigned_to = $1 OR 
+        ts.assigned_to IN (select developer_id from team where manager_id = $1))
+        AND ts.is_deleted = true`,
+      [userId])
+
+      if(response.rowCount === 0){
+        throw new ApiError(404, "Deleted tasks not found")
+      }
+
+      res.status(200)
+      .json(new ApiResponse(200, response.rows, "Deleted tasks fetched"))
+    } finally {
+      client.release()
+    }
+})
+
+
+const recoverTask = asyncHandler(async(req: Request, res: Response) => {
+    const userId = req.userId
+    const role = req.role
+    const taskId = Number(req.params.id)
+    const comment: string | null = req.body?.comment ?? null
+
+    requireAuth(userId, role)
+
+    if (!Number.isInteger(taskId) || taskId <= 0) {
+      throw new ApiError(400, "Invalid Task Id")
+    }
+
+    if(role === "Developer") throw new ApiError(403, "Only managers can recover tasks")
+    
+    const client = await pool.connect()
+
+    try {
+      await client.query("BEGIN")
+
+      const recover = await client.query(`Update tasks set is_deleted = false
+        where id = $1
+        and is_deleted = true
+        and assigned_to IN (
+          Select developer_id from team where manager_id = $2
+        )
+        returning id, state`, [taskId, userId])
+
+      if(recover.rowCount === 0){
+        throw new ApiError(404, "Deleted task not found")
+      }
+
+      const data = recover.rows[0]
+
+      await client.query(`Insert into history
+      (task_id, from_state, to_state, actor_id, actor_role, comment, action)
+      values($1, $2, $3, $4, $5, $6, $7)`,
+    [data.id, data.state, data.state, userId, role, comment, "RECOVERED"])
+
+      await client.query("COMMIT")
+
+      res.status(200)
+      .json(new ApiResponse(200, data, "Task recovered successfully"))
+    } catch (error) {
+      try{
+        await client.query("ROLLBACK")
+      }
+      catch(error){
+
+      }
+      throw error
+    }
+    finally{
+      client.release()
+    }
+})
+
 export {
   getAllTasks,
   createTask,
@@ -451,5 +645,7 @@ export {
   submitTask,
   reviewTask,
   getAllHistory,
-  getHistory
+  getHistory,
+  getDeletedTasks,
+  recoverTask
 }

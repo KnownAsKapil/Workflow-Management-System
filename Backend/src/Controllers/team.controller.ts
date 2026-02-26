@@ -43,3 +43,30 @@ return res.status(200).json(
 
   }
 )
+
+export const getDevelopers = asyncHandler(
+  async (req: Request, res: Response) => {
+    const userId = req.userId
+    const role = req.role
+
+    requireAuth(userId, role)
+
+    if (role !== "Manager") {
+      throw new ApiError(403, "Only managers can access developers list")
+    }
+
+    const developersResult = await pool.query(
+      `SELECT u.id, u.name, u.email, u.phone,
+        CASE WHEN t.manager_id = $1 THEN true ELSE false END AS is_in_team
+       FROM users u
+       LEFT JOIN team t ON t.developer_id = u.id
+       WHERE u.role = 'Developer'
+       ORDER BY u.id ASC`,
+      [userId]
+    )
+
+    return res.status(200).json(
+      new ApiResponse(200, developersResult.rows, "Developers fetched successfully")
+    )
+  }
+)
