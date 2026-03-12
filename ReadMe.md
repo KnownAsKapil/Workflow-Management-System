@@ -2,7 +2,6 @@
 # Flow Management System
 
 A backend-focused Flow Management System designed to model structured task workflows with clear responsibilities, controlled state transitions, and reliable audit history.  
-The project emphasizes **backend correctness**, **access control**, and **system flow clarity**, with a minimal frontend used only to interact with the backend.
 
 ---
 
@@ -115,8 +114,6 @@ Authentication follows production-oriented practices:
 - TypeScript
 - Axios
 - Context API
-
-The frontend is intentionally simple and exists to demonstrate interaction with the backend APIs.
 
 ---
 
@@ -254,12 +251,12 @@ This project demonstrates:
 - Secure authentication patterns
 - Clear separation of responsibilities
 - Maintainable and auditable task flow
+- Database transactions for multi-step operations
 
 ---
 
 ## Future Improvements
 
-- Database transactions for multi-step operations
 - Task deadlines and reminders
 - Task reassignment workflows
 - Query optimization and indexing
@@ -269,7 +266,3 @@ This project demonstrates:
 
 ---
 
-## Summary
-
-The Flow Management System focuses on building a clear and reliable backend that enforces business rules consistently.  
-The design prioritizes correctness, clarity, and extensibility, making it suitable as a foundation for more advanced features in the future.
