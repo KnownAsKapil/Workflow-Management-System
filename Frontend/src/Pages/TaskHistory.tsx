@@ -31,18 +31,16 @@ export default function TaskHistoryPage({ taskId }: { taskId: number }) {
   }
 
   return (
-    <div className="mt-4 rounded-lg border border-slate-700 bg-slate-800 p-4">
-      <h4 className="text-sm font-semibold text-slate-200 mb-3">
+    <div className="rounded-2xl border border-slate-700/80 bg-slate-950/45 p-4">
+      <h4 className="mb-4 text-sm font-semibold text-slate-200">
         Task History
       </h4>
 
-      <ol className="relative border-l border-slate-700 space-y-4">
+      <ol className="relative border-l border-slate-700/80 space-y-5">
         {history.map(entry => (
           <li key={entry.id} className="ml-4">
-            {/* Dot */}
-            <span className="absolute -left-1.5 mt-1.5 h-3 w-3 rounded-full bg-indigo-500" />
+            <span className="absolute -left-1.5 mt-1.5 h-3 w-3 rounded-full bg-cyan-400 shadow-[0_0_0_4px_rgba(8,47,73,0.55)]" />
 
-            {/* Content */}
             <div className="flex flex-col gap-1">
               <div className="text-sm text-slate-200">
                 <span className="font-medium">
@@ -59,7 +57,7 @@ export default function TaskHistoryPage({ taskId }: { taskId: number }) {
               </div>
 
               {entry.comment && (
-                <div className="text-xs text-slate-300 bg-slate-900 rounded px-2 py-1 mt-1">
+                <div className="mt-1 rounded-xl bg-slate-950 px-3 py-2 text-xs text-slate-300">
                   {entry.comment}
                 </div>
               )}

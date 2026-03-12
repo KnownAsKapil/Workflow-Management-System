@@ -69,3 +69,26 @@ export const reviewTask = async (
   const res = await api.patch(`/tasks/${taskId}/review`, payload)
   return res.data.data
 }
+
+export const getDeletedTasks = async (): Promise<Task[]> => {
+  try {
+    const res = await api.get("/tasks/deletedTasks")
+    return res.data.data
+  } catch (error: any) {
+    if (error?.response?.status === 404) {
+      return []
+    }
+    throw error
+  }
+}
+
+export const recoverTask = async (
+  taskId: number,
+  comment?: string
+): Promise<Task> => {
+  const res = await api.patch(
+    `/tasks/deletedTasks/${taskId}`,
+    comment ? { comment } : {}
+  )
+  return res.data.data
+}

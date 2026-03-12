@@ -8,6 +8,7 @@ export interface Task {
   state: TaskState
   created_by: number
   assigned_to: number
+  assigned_to_name?: string
   created_at: string
   updated_at: string
 }

@@ -125,64 +125,73 @@ export default function TaskDetailPage() {
 
   /* ---------------- RENDER ---------------- */
 
-  if (loading) return <div>Loading task...</div>
-  if (!task) return <div>Task not found</div>
+  if (loading) return <div className="page-enter text-sm text-slate-400">Loading task...</div>
+  if (!task) return <div className="page-enter text-sm text-slate-400">Task not found</div>
 
   return (
-    <div className="flex flex-col gap-6">
-      {/* Task metadata */}
-      <div className="rounded-lg border border-slate-700 bg-slate-800 p-4">
-        <h2 className="text-lg font-semibold text-slate-100">
-          {task.name}
-        </h2>
-        <p className="text-sm text-slate-400 mt-1">
-          {task.instruction}
-        </p>
-        <div className="mt-2 text-xs text-slate-300">
-          State: <span className="font-medium">{task.state}</span>
+    <div className="page-enter flex flex-col gap-6">
+      <div className="panel p-5 md:p-6">
+        <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+          <div>
+            <h2 className="text-2xl font-semibold text-slate-100">
+              {task.name}
+            </h2>
+            <p className="mt-2 max-w-3xl text-sm leading-6 text-slate-400">
+              {task.instruction}
+            </p>
+          </div>
+
+          <div className="flex flex-wrap gap-2">
+            <span className="status-pill">State {task.state}</span>
+            <span className="status-pill">
+              Assignee {task.assigned_to_name ?? "Developer"} (#{task.assigned_to})
+            </span>
+          </div>
         </div>
       </div>
 
-      {/* Task content */}
-      <div className="flex flex-col gap-2">
-        <label className="text-sm text-slate-300">Task Content</label>
+      <div className="panel p-5 md:p-6">
+        <div className="mb-3 flex items-center justify-between gap-3">
+          <label className="text-sm text-slate-300">Task Content</label>
+          <span className="text-xs text-slate-500">
+            {canEditContent ? "Editable in current state" : "Read-only in current state"}
+          </span>
+        </div>
         <textarea
           value={content}
           disabled={!canEditContent}
           onChange={e => setContent(e.target.value)}
-          className="min-h-[140px] rounded-md bg-slate-900 border border-slate-700
-                     p-3 text-slate-100 disabled:opacity-60"
+          className="field-input min-h-[140px] p-3 disabled:opacity-60"
           placeholder="Work on the task here..."
         />
       </div>
 
-      {/* Manager edits */}
       {role === "Manager" && task.state !== "ACCEPTED" && (
-        <div className="rounded-lg border border-slate-700 bg-slate-800 p-4">
-          <h3 className="text-sm font-semibold text-slate-200 mb-3">
+        <div className="panel p-5 md:p-6">
+          <h3 className="mb-3 text-lg font-semibold text-slate-200">
             Edit Task
           </h3>
           <div className="flex flex-col gap-3">
             <div className="flex flex-col gap-1">
-              <label className="text-xs text-slate-400">Name</label>
+              <label className="field-label">Name</label>
               <input
                 value={name}
                 onChange={e => setName(e.target.value)}
-                className="rounded-md bg-slate-900 border border-slate-700 p-2 text-slate-100"
+                className="field-input"
               />
             </div>
             <div className="flex flex-col gap-1">
-              <label className="text-xs text-slate-400">Instruction</label>
+              <label className="field-label">Instruction</label>
               <textarea
                 value={instruction}
                 onChange={e => setInstruction(e.target.value)}
-                className="min-h-[100px] rounded-md bg-slate-900 border border-slate-700 p-2 text-slate-100"
+                className="field-input min-h-[100px]"
               />
             </div>
             <button
               onClick={handleSaveEdits}
               disabled={actionLoading}
-              className="self-start px-4 py-2 rounded-md bg-indigo-600 hover:bg-indigo-500"
+              className="self-start btn-base btn-primary"
             >
               Save Changes
             </button>
@@ -190,75 +199,76 @@ export default function TaskDetailPage() {
         </div>
       )}
 
-      {/* Comment */}
-      <div className="flex flex-col gap-2">
-        <label className="text-sm text-slate-300">
-          Comment (optional)
-        </label>
-        <input
-          value={comment}
-          onChange={e => setComment(e.target.value)}
-          className="rounded-md bg-slate-900 border border-slate-700 p-2 text-slate-100"
-          placeholder="Add a note for this action..."
-        />
+      <div className="panel p-5 md:p-6">
+        <div className="grid gap-5 lg:grid-cols-[minmax(0,1fr)_auto] lg:items-end">
+          <div className="flex flex-col gap-2">
+            <label className="text-sm text-slate-300">
+              Comment (optional)
+            </label>
+            <input
+              value={comment}
+              onChange={e => setComment(e.target.value)}
+              className="field-input"
+              placeholder="Add a note for this action..."
+            />
+          </div>
+
+          <div className="flex gap-3 flex-wrap">
+            {role === "Developer" && task.state === "ASSIGNED" && (
+              <button
+                onClick={handleStartTask}
+                disabled={actionLoading}
+                className="btn-base btn-primary"
+              >
+                Start Task
+              </button>
+            )}
+
+            {role === "Developer" && task.state === "ONGOING" && (
+              <>
+                <button
+                  onClick={handleSaveContent}
+                  disabled={actionLoading}
+                  className="btn-base btn-muted"
+                >
+                  Save Content
+                </button>
+                <button
+                  onClick={handleSubmitForReview}
+                  disabled={actionLoading}
+                  className="btn-base btn-primary"
+                >
+                  Submit for Review
+                </button>
+              </>
+            )}
+
+            {role === "Manager" && task.state === "REVIEW" && (
+              <>
+                <button
+                  onClick={handleAcceptTask}
+                  disabled={actionLoading}
+                  className="btn-base btn-success"
+                >
+                  Accept
+                </button>
+
+                <button
+                  onClick={handleRejectTask}
+                  disabled={actionLoading}
+                  className="btn-base btn-danger"
+                >
+                  Send Back
+                </button>
+              </>
+            )}
+          </div>
+        </div>
       </div>
 
-      {/* Actions */}
-      <div className="flex gap-3 flex-wrap">
-        {/* Developer actions */}
-        {role === "Developer" && task.state === "ASSIGNED" && (
-          <button
-            onClick={handleStartTask}
-            disabled={actionLoading}
-            className="px-4 py-2 rounded-md bg-indigo-600 hover:bg-indigo-500"
-          >
-            Start Task
-          </button>
-        )}
-
-        {role === "Developer" && task.state === "ONGOING" && (
-          <>
-            <button
-              onClick={handleSaveContent}
-              disabled={actionLoading}
-              className="px-4 py-2 rounded-md bg-slate-700 hover:bg-slate-600"
-            >
-              Save Content
-            </button>
-            <button
-              onClick={handleSubmitForReview}
-              disabled={actionLoading}
-              className="px-4 py-2 rounded-md bg-indigo-600 hover:bg-indigo-500"
-            >
-              Submit for Review
-            </button>
-          </>
-        )}
-
-        {/* Manager actions */}
-        {role === "Manager" && task.state === "REVIEW" && (
-          <>
-            <button
-              onClick={handleAcceptTask}
-              disabled={actionLoading}
-              className="px-4 py-2 rounded-md bg-green-600 hover:bg-green-500"
-            >
-              Accept
-            </button>
-
-            <button
-              onClick={handleRejectTask}
-              disabled={actionLoading}
-              className="px-4 py-2 rounded-md bg-red-600 hover:bg-red-500"
-            >
-              Send Back
-            </button>
-          </>
-        )}
+      <div className="panel p-5 md:p-6">
+        <TaskHistoryPage taskId={task.id} />
       </div>
-
-      {/* History */}
-      <TaskHistoryPage taskId={task.id} />
     </div>
   )
 }

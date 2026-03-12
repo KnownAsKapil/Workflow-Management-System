@@ -1,7 +1,7 @@
 // src/App.tsx
 import "./App.css"
 
-import { Routes, Route, Navigate, Link } from "react-router-dom"
+import { Routes, Route, Navigate, NavLink } from "react-router-dom"
 import Login from "./Pages/Login"
 import Register from "./Pages/Register"
 import TasksPage from "./Pages/TasksPage"
@@ -15,60 +15,80 @@ import TeamMembersPage from "./Pages/TeamMembersPage"
 function App() {
   const { user, loading, logout } = useAuth()
 
-  // CRITICAL: block routing until auth is resolved
   if (loading) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-slate-900 text-slate-200">
-        Loading...
+      <div className="app-shell subtle-grid flex min-h-screen items-center justify-center px-4">
+        <div className="panel page-enter w-full max-w-md p-8 text-center">
+          <h1 className="mt-5 text-3xl font-semibold text-slate-50">
+            Flow Management System
+          </h1>
+          <p className="mt-3 text-sm text-slate-400">
+            Loading your session.
+          </p>
+          <div className="mt-6 flex items-center justify-center gap-2">
+            <span className="h-2.5 w-2.5 animate-pulse rounded-full bg-cyan-300" />
+            <span className="h-2.5 w-2.5 animate-pulse rounded-full bg-cyan-400 [animation-delay:120ms]" />
+            <span className="h-2.5 w-2.5 animate-pulse rounded-full bg-sky-400 [animation-delay:240ms]" />
+          </div>
+        </div>
       </div>
     )
   }
 
   return (
-    <div className="min-h-screen bg-slate-900 text-slate-100">
-      {/* Header */}
+    <div className="app-shell subtle-grid text-slate-100">
       {user && (
-        <header className="border-b border-slate-700 bg-slate-800">
-          <div className="max-w-6xl mx-auto px-4 py-3 flex flex-wrap justify-between items-center gap-3">
-            <div className="text-sm">
-              {user.name}
-              <span className="ml-2 text-xs px-2 py-0.5 rounded bg-indigo-600/20 text-indigo-400">
-                {user.role}
-              </span>
+        <header className="shell-header">
+          <div className="mx-auto flex max-w-6xl flex-wrap items-center justify-between gap-4 px-4 py-4">
+            <div className="shell-brand">
+              <div className="mt-1 flex flex-wrap items-center gap-2 text-sm">
+                <span className="font-semibold text-slate-100">{user.name}</span>
+                <span className="status-pill border-cyan-400/20 bg-cyan-500/10 text-cyan-200">
+                  {user.role}
+                </span>
+              </div>
             </div>
 
             <nav className="flex flex-wrap gap-2 text-sm">
-              <Link
+              <NavLink
                 to="/tasks"
-                className="px-3 py-1.5 rounded-md bg-slate-700 hover:bg-slate-600"
+                className={({ isActive }) =>
+                  `nav-link ${isActive ? "nav-link-active" : ""}`
+                }
               >
                 Tasks
-              </Link>
-              <Link
+              </NavLink>
+              <NavLink
                 to="/history"
-                className="px-3 py-1.5 rounded-md bg-slate-700 hover:bg-slate-600"
+                className={({ isActive }) =>
+                  `nav-link ${isActive ? "nav-link-active" : ""}`
+                }
               >
                 History
-              </Link>
+              </NavLink>
               {user.role === "Manager" && (
                 <>
-                  <Link
+                  <NavLink
                     to="/team"
-                    className="px-3 py-1.5 rounded-md bg-slate-700 hover:bg-slate-600"
+                    className={({ isActive }) =>
+                      `nav-link ${isActive ? "nav-link-active" : ""}`
+                    }
                   >
                     Team
-                  </Link>
-                  <Link
+                  </NavLink>
+                  <NavLink
                     to="/team-members"
-                    className="px-3 py-1.5 rounded-md bg-slate-700 hover:bg-slate-600"
+                    className={({ isActive }) =>
+                      `nav-link ${isActive ? "nav-link-active" : ""}`
+                    }
                   >
                     Team Members
-                  </Link>
+                  </NavLink>
                 </>
               )}
               <button
                 onClick={logout}
-                className="px-3 py-1.5 rounded-md bg-slate-700 hover:bg-slate-600"
+                className="nav-link"
               >
                 Logout
               </button>
@@ -77,10 +97,8 @@ function App() {
         </header>
       )}
 
-      {/* Routes */}
-      <main className="max-w-6xl mx-auto px-4 py-6">
+      <main className="app-main mx-auto max-w-6xl px-4 py-6 md:py-8">
         <Routes>
-          {/* Public */}
           <Route
             path="/login"
             element={
@@ -89,7 +107,6 @@ function App() {
           />
           <Route path="/register" element={<Register />} />
 
-          {/* Protected */}
           <Route
             path="/tasks"
             element={
@@ -134,7 +151,6 @@ function App() {
             }
           />
 
-          {/* Fallback */}
           <Route
             path="*"
             element={
