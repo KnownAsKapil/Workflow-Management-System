@@ -8,7 +8,8 @@ import pool from "../DB/DB_Connection.js"
 import type { AccessTokenPayload, RefreshTokenPayload } from "../Interfaces/interfaces.js"
 import type { Secret } from "jsonwebtoken"
 import { hashPassword, checkPassword } from "../Utils/PasswordHandler.js"
-import { appendFile } from "node:fs"
+import redis from "../DB/redis.js"
+import { getDevelopersCacheKey, getTeamCacheKey } from "./team.controller.js"
 
 const accessTokenExpiry = process.env.ACCESS_TOKEN_EXPIRY ?? "15m"
 const refreshTokenExpiry = process.env.REFRESH_TOKEN_EXPIRY ?? "7d"
@@ -224,6 +225,8 @@ const makeTeam = asyncHandler(async (req: Request, res: Response) => {
       throw new ApiError(400, "Bad Request")
     }
 
+    const managerId = userId as number
+
     const employeeDetail = await pool.query(`Select * from users 
               where id = $1 and role = 'Developer'`, [developerId])
 
@@ -231,20 +234,45 @@ const makeTeam = asyncHandler(async (req: Request, res: Response) => {
       throw new ApiError(404, "User not found")
     }
 
+    const previousTeam = await pool.query(
+      `Select manager_id from team where developer_id = $1`,
+      [developerId]
+    )
+
     const employeeTeam = await pool.query(`Select * from team where developer_id = $1`,
       [developerId]
     )
 
     if(employeeTeam.rowCount === 0){
       await pool.query(`Insert into team(manager_id, developer_id) values ($1, $2)`,
-        [userId, developerId]
+        [managerId, developerId]
       )
     }
     else{
       await pool.query(`Update team set manager_id = $1 where developer_id = $2`,
-        [userId, developerId]
+        [managerId, developerId]
       )
     }
+
+    const cacheKeysToDelete = [
+      getTeamCacheKey(managerId),
+      getDevelopersCacheKey(managerId),
+    ]
+
+    const previousManagerId = previousTeam.rows[0]?.manager_id as number | undefined
+
+    if (
+      Number.isInteger(previousManagerId) &&
+      previousManagerId !== managerId
+    ) {
+      const oldManagerId = previousManagerId as number
+      cacheKeysToDelete.push(
+        getTeamCacheKey(oldManagerId),
+        getDevelopersCacheKey(oldManagerId)
+      )
+    }
+
+    await redis.del(cacheKeysToDelete)
 
     res.status(200)
     .json(new ApiResponse(200, "Team Updated"))

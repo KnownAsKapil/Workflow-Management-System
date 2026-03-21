@@ -1,18 +1,5 @@
-
-import { createClient } from 'redis';
 import { Request, Response, NextFunction } from 'express';
-import dotenv from "dotenv"
-dotenv.config()
-
-const redis = createClient({
-    username: 'default',
-    password: process.env.REDIS_PASSWORD,
-    socket: {
-        host: 'redis-17254.c82.us-east-1-2.ec2.cloud.redislabs.com',
-        port: 17254
-    }
-});
-await redis.connect();
+import redis from "../DB/redis.js"
 
 
 export const rateLimiter = async (req: Request, res: Response, next: NextFunction) => {
